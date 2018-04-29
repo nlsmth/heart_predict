@@ -1,5 +1,5 @@
 # Load scikit's random forest classifier library
-from sklearn.ensemble import RandomForestClassifier
+from sklearn.ensemble import RandomForestClassifier, AdaBoostClassifier, GradientBoostingClassifier
 from sklearn.cross_validation import train_test_split
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.metrics import roc_curve, precision_recall_curve, auc, make_scorer, recall_score, accuracy_score, precision_score, confusion_matrix
@@ -184,11 +184,12 @@ def runKNN():
 
     #print(accuracy_score(y_test, pred))
 
-def runSVM(kernel):
+def runSVM():
     dataFrame = pd.read_csv('processedclevelandPrime.csv')
 
     param_grid = {
-        'C' : [1, 5, 10]
+        'C' : [1, 5, 10],
+        'gamma': [1, 2, 5, 10]
     }
 
     scorers = {
@@ -205,10 +206,10 @@ def runSVM(kernel):
     y = np.array(dataFrame['num']) 	# another way of indexing a pandas df
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, random_state=0)
 
-    clf = svm.SVC(kernel = kernel)
+    clf = svm.SVC(kernel = 'linear', probability=True)
     
 
-    def grid_search_wrapper(refit_score='precision_score'):
+    def grid_search_wrapper(refit_score='accuracy_score'):
 
         skf = StratifiedKFold(n_splits=10)
         grid_search = GridSearchCV(clf, param_grid, scoring=scorers, refit=refit_score, cv=skf, return_train_score=True, n_jobs=-1)
@@ -225,16 +226,17 @@ def runSVM(kernel):
         return grid_search
 
     grid_search_clf = grid_search_wrapper(refit_score='precision_score')
-
     fin = pd.DataFrame(grid_search_clf.cv_results_)
     fin = fin.sort_values(by='mean_test_precision_score', ascending=False)
+    print(fin[['mean_test_precision_score', 'mean_test_recall_score', 'mean_test_accuracy_score', 'param_C', 'param_gamma']].round(3).head())
+
     #print(fin.head())
 
-    y_scores = grid_search_clf.decision_function(X_test)
-    p, r, thresholds = precision_recall_curve(y_test, y_scores)
+    y_scores = grid_search_clf.predict_proba(X_test)[:, 1]
+    y_pred_adj = adjusted_classes(y_scores, .3)
+    print(pd.DataFrame(confusion_matrix(y_test, y_pred_adj), columns=['pred_neg', 'pred_pos'], index=['neg', 'pos']))
+    #p, r, thresholds = precision_recall_curve(y_test, y_scores)
     #print(thresholds)
-
-    print(fin[['mean_test_precision_score', 'mean_test_recall_score', 'mean_test_accuracy_score', 'param_C']].round(3).head())
 
 
     #print(clf)
@@ -244,7 +246,112 @@ def runSVM(kernel):
     #predictions = clf.predict(X_test)
     #print(accuracy_score(y_test,predictions))
 
+def runAdaBoost():
+    dataFrame = pd.read_csv('processedclevelandPrime.csv')
+
+    param_grid = {
+        'n_estimators' : [5, 25, 50, 100, 200]
+    }
+
+    scorers = {
+        'precision_score': make_scorer(precision_score),
+        'recall_score': make_scorer(recall_score),
+        'accuracy_score': make_scorer(accuracy_score)
+    }
+
+    for i in range(0, len(dataFrame['num'])):
+        if(dataFrame['num'][i] > 0):
+            dataFrame['num'][i] = 1
+    
+    X = np.array(dataFrame.ix[:, 0:13]) 	# end index is exclusive
+    y = np.array(dataFrame['num']) 	# another way of indexing a pandas df
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, random_state=0)
+
+    clf = AdaBoostClassifier(random_state=0)
+
+    def grid_search_wrapper(refit_score='accuracy_score'):
+
+        skf = StratifiedKFold(n_splits=10)
+        grid_search = GridSearchCV(clf, param_grid, scoring=scorers, refit=refit_score, cv=skf, return_train_score=True, n_jobs=-1)
+        grid_search.fit(X_train, y_train)
+        # make the predictions
+        y_pred = grid_search.predict(X_test)
+
+        print('Best params for {}'.format(refit_score))
+        print(grid_search.best_params_)
+
+        # confusion matrix on the test data.
+        print('\nConfusion matrix of Random Forest optimized for {} on the test data:'.format(refit_score))
+        print(pd.DataFrame(confusion_matrix(y_test, y_pred), columns=['pred_neg', 'pred_pos'], index=['neg', 'pos']))
+        return grid_search
+
+    grid_search_clf = grid_search_wrapper(refit_score='precision_score')
+    fin = pd.DataFrame(grid_search_clf.cv_results_)
+    fin = fin.sort_values(by='mean_test_precision_score', ascending=False)
+    print(fin[['mean_test_precision_score', 'mean_test_recall_score', 'mean_test_accuracy_score', 'param_n_estimators']].round(3).head())
+
+    #print(fin.head())
+
+    y_scores = grid_search_clf.predict_proba(X_test)[:, 1]
+    y_pred_adj = adjusted_classes(y_scores, .3)
+    print(pd.DataFrame(confusion_matrix(y_test, y_pred_adj), columns=['pred_neg', 'pred_pos'], index=['neg', 'pos']))
+
+def runGradientBoost():
+    dataFrame = pd.read_csv('processedclevelandPrime.csv')
+
+    param_grid = {
+        'min_samples_split': [3, 5, 10], 
+        'n_estimators' : [50, 100, 200],
+        'max_depth': [3, 5, 15, 25],
+        'max_features': [3, 5, 10, 13]
+    }
+
+    scorers = {
+        'precision_score': make_scorer(precision_score),
+        'recall_score': make_scorer(recall_score),
+        'accuracy_score': make_scorer(accuracy_score)
+    }
+
+    for i in range(0, len(dataFrame['num'])):
+        if(dataFrame['num'][i] > 0):
+            dataFrame['num'][i] = 1
+    
+    X = np.array(dataFrame.ix[:, 0:13]) 	# end index is exclusive
+    y = np.array(dataFrame['num']) 	# another way of indexing a pandas df
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, random_state=0)
+
+    clf = GradientBoostingClassifier(random_state=0)
+
+    def grid_search_wrapper(refit_score='accuracy_score'):
+
+        skf = StratifiedKFold(n_splits=10)
+        grid_search = GridSearchCV(clf, param_grid, scoring=scorers, refit=refit_score, cv=skf, return_train_score=True, n_jobs=-1)
+        grid_search.fit(X_train, y_train)
+        # make the predictions
+        y_pred = grid_search.predict(X_test)
+
+        print('Best params for {}'.format(refit_score))
+        print(grid_search.best_params_)
+
+        # confusion matrix on the test data.
+        print('\nConfusion matrix of Random Forest optimized for {} on the test data:'.format(refit_score))
+        print(pd.DataFrame(confusion_matrix(y_test, y_pred), columns=['pred_neg', 'pred_pos'], index=['neg', 'pos']))
+        return grid_search
+
+    grid_search_clf = grid_search_wrapper(refit_score='precision_score')
+    fin = pd.DataFrame(grid_search_clf.cv_results_)
+    fin = fin.sort_values(by='mean_test_precision_score', ascending=False)
+    print(fin[['mean_test_precision_score', 'mean_test_recall_score', 'mean_test_accuracy_score', 'param_n_estimators']].round(3).head())
+
+    #print(fin.head())
+
+    y_scores = grid_search_clf.predict_proba(X_test)[:, 1]
+    y_pred_adj = adjusted_classes(y_scores, .3)
+    print(fin[['mean_test_precision_score', 'mean_test_recall_score', 'mean_test_accuracy_score', 'param_max_depth', 'param_max_features', 'param_min_samples_split', 'param_n_estimators']].round(3).head())
+    print(pd.DataFrame(confusion_matrix(y_test, y_pred_adj), columns=['pred_neg', 'pred_pos'], index=['neg', 'pos']))
 
 #runRandomForest()
-runKNN()
-#runSVM("linear")
+#runKNN()
+#runSVM()
+#runAdaBoost()
+runGradientBoost()
