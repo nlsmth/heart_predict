@@ -11,10 +11,7 @@ import csv
 
 np.random.seed(0)
 
-def adjusted_classes(y_scores, t):
-    return [1 if y >= t else 0 for y in y_scores]
-
-
+#START: Noel Smith
 def runRandomForest():
     dataFrame = pd.read_csv('processedclevelandPrime.csv')
     param_grid = {
@@ -68,6 +65,7 @@ def runRandomForest():
 
     grid_search_clf = grid_search_wrapper(refit_score='precision_score')
 
+
 def runKNN():
     dataFrame = pd.read_csv('processedclevelandPrime.csv')
 
@@ -107,8 +105,10 @@ def runKNN():
         return grid_search
 
     grid_search_clf = grid_search_wrapper(refit_score='precision_score')
+#END: Noel Smith
 
 
+#START: Michael Janvier
 def runSVM():
     dataFrame = pd.read_csv('processedclevelandPrime.csv')
 
@@ -193,7 +193,10 @@ def runAdaBoost():
         return grid_search
 
     grid_search_clf = grid_search_wrapper(refit_score='precision_score')
+#END: Michael Janvier
 
+
+#START: Noel Smith
 def runGradientBoost():
     dataFrame = pd.read_csv('processedclevelandPrime.csv')
 
@@ -242,7 +245,11 @@ def runGradientBoost():
         return grid_search
 
     grid_search_clf = grid_search_wrapper(refit_score='precision_score')
+#END: Noel Smith
 
+#START: Michael Janvier
+def adjusted_classes(y_scores, t):
+    return [1 if y >= t else 0 for y in y_scores]
 
 def thresholds(y_test, y_pred):
     aScore = None
@@ -270,7 +277,7 @@ def thresholds(y_test, y_pred):
     
 
 
-def getThresholdCurves():
+def getThresholds():
 
     dataFrame = pd.read_csv('processedclevelandPrime.csv')
     for i in range(0, len(dataFrame['num'])):
@@ -352,7 +359,7 @@ def getThresholdCurves():
     y_scoresgbrfClassifierAccuracy = gbrfClassifierRecall.predict_proba(X_test)[:, 1]
     thresholds(y_test, y_scoresgbrfClassifierAccuracy)
 
-
+#END: Michael Janvier
 
 
 
@@ -362,5 +369,5 @@ def getThresholdCurves():
 #runAdaBoost()
 #runGradientBoost()
 
-getThresholdCurves()
+getThresholds()
 
