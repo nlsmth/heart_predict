@@ -1,4 +1,3 @@
-# Load scikit's random forest classifier library
 from sklearn.ensemble import RandomForestClassifier, AdaBoostClassifier, GradientBoostingClassifier
 from sklearn.cross_validation import train_test_split
 from sklearn.neighbors import KNeighborsClassifier
