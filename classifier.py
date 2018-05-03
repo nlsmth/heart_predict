@@ -4,40 +4,26 @@ from sklearn.cross_validation import train_test_split
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.metrics import roc_curve, precision_recall_curve, auc, make_scorer, recall_score, accuracy_score, precision_score, confusion_matrix
 from sklearn import svm
-from sklearn.model_selection import GridSearchCV, StratifiedKFold
-import matplotlib
-matplotlib.use('Agg')
-import matplotlib.pyplot as plt
-
-# Load pandas
+from sklearn.model_selection import GridSearchCV, StratifiedKFold, RandomizedSearchCV
 import pandas as pd
-
-# Load numpy
 import numpy as np
-
 import csv
 
-
-# Set random seed
 np.random.seed(0)
-plt.style.use("ggplot")
 
 def adjusted_classes(y_scores, t):
-    """
-    This function adjusts class predictions based on the prediction threshold (t).
-    Will only work for binary classification problems.
-    """
     return [1 if y >= t else 0 for y in y_scores]
 
 
 def runRandomForest():
     dataFrame = pd.read_csv('processedclevelandPrime.csv')
-
     param_grid = {
-        'min_samples_split': [3, 5, 10], 
-        'n_estimators' : [100, 300],
-        'max_depth': [3, 5, 15, 25],
-        'max_features': [3, 5, 10, 13]
+        'bootstrap': [True, False],
+        'max_depth': [3, 5, 10, 20, 50, 75, 100, None],
+        'max_features': ['sqrt', 'log2', None],
+        'min_samples_leaf': [1, 2, 4, 6, 10],
+        'min_samples_split': [2, 5, 10],
+        'n_estimators': [100, 250, 500, 1000, 2000]
     }
 
     scorers = {
@@ -51,8 +37,6 @@ def runRandomForest():
             dataFrame['num'][i] = 1
 
     dataFrame['is_train'] = np.random.uniform(0, 1, len(dataFrame)) <= .7
-    #print(dataFrame)
-    #print(dataFrame.head())
 
     train, test = dataFrame[dataFrame['is_train']==True], dataFrame[dataFrame['is_train']==False]
 
@@ -61,77 +45,34 @@ def runRandomForest():
 
     features = dataFrame.columns[:13]
 
-    #clf = RandomForestClassifier(n_estimators=n_est, n_jobs=-1, random_state=0, max_features=n_feat)
-    clf = RandomForestClassifier(n_jobs=-1)
-    #clf.fit(train[features], train['num'])
-    #clf.predict(test[features])
+    clf = RandomForestClassifier()
 
-    #predictions = clf.predict(test[features])
-    #results = pd.crosstab(test['num'], predictions, rownames=['Actual'], colnames=['Predicted'])
-    #print(results)
-
-    #feature importance
-    #print(list(zip(train[features], clf.feature_importances_)))
-    #print(accuracy_score(test['num'],predictions))
 
 
     def grid_search_wrapper(refit_score='precision_score'):
 
         skf = StratifiedKFold(n_splits=10)
-        grid_search = GridSearchCV(clf, param_grid, scoring=scorers, refit=refit_score, cv=skf, return_train_score=True, n_jobs=-1)
+        grid_search = RandomizedSearchCV(clf, param_grid, scoring=scorers, refit=refit_score, cv=skf, return_train_score=True, n_jobs=2, n_iter=500)
                             
-        #print(train[features])
-        grid_search.fit(train[features], train['num'])
+        grid_search.fit(dataFrame[features], dataFrame['num'])
 
-        # make the predictions
-        y_pred = grid_search.predict(test[features])
+        fin = pd.DataFrame(grid_search.cv_results_)
+        fin = fin.sort_values(by='mean_test_precision_score' , ascending=False)
+        print(fin[['mean_test_precision_score', 'mean_test_recall_score', 'mean_test_accuracy_score', 'param_max_depth', 'param_max_features', 'param_min_samples_split', 'param_n_estimators', 'param_bootstrap', 'param_min_samples_leaf']].round(3).head(1))
+        fin = fin.sort_values(by='mean_test_recall_score' , ascending=False)
+        print(fin[['mean_test_precision_score', 'mean_test_recall_score', 'mean_test_accuracy_score', 'param_max_depth', 'param_max_features', 'param_min_samples_split', 'param_n_estimators', 'param_bootstrap', 'param_min_samples_leaf']].round(3).head(1))
+        fin = fin.sort_values(by='mean_test_accuracy_score' , ascending=False)
+        print(fin[['mean_test_precision_score', 'mean_test_recall_score', 'mean_test_accuracy_score', 'param_max_depth', 'param_max_features', 'param_min_samples_split', 'param_n_estimators', 'param_bootstrap', 'param_min_samples_leaf']].round(3).head(1))
 
-        print('Best params for {}'.format(refit_score))
-        print(grid_search.best_params_)
-
-        # confusion matrix on the test data.
-        print('\nConfusion matrix of Random Forest optimized for {} on the test data:'.format(refit_score))
-        print(pd.DataFrame(confusion_matrix(test['num'], y_pred), columns=['pred_neg', 'pred_pos'], index=['neg', 'pos']))
         return grid_search
 
     grid_search_clf = grid_search_wrapper(refit_score='precision_score')
-
-    fin = pd.DataFrame(grid_search_clf.cv_results_)
-    fin = fin.sort_values(by='mean_test_precision_score', ascending=False)
-    #print(fin.head())
-
-    y_scores = grid_search_clf.predict_proba(test[features])[:, 1]
-    p, r, thresholds = precision_recall_curve(test['num'], y_scores)
-    #print(thresholds)
-
-    y_pred_adj = adjusted_classes(y_scores, .3)
-
-    print(pd.DataFrame(confusion_matrix(test['num'], y_pred_adj), columns=['pred_neg', 'pred_pos'], index=['neg', 'pos']))
-    
-    def precision_recall_threshold(p, r, thresholds, t=0.5):
-        y_pred_adj = adjusted_classes(y_scores, t)
-
-        print(pd.DataFrame(confusion_matrix(test['num'], y_pred_adj), columns=['pred_neg', 'pred_pos'], index=['neg', 'pos']))
-        # plot the curve
-        plt.figure(figsize=(8,8))
-        plt.title("Precision and Recall curve ^ = current threshold")
-        plt.step(r, p, color='b', alpha=0.2, where='post')
-        plt.fill_between(r, p, step='post', alpha=0.2, color='b')
-        plt.ylim([0.5, 1.01])
-        plt.xlim([0.5, 1.01])
-        plt.xlabel('Recall')
-        plt.ylabel('Precision')
-        close_default_clf = np.argmin(np.abs(thresholds - t))
-        plt.plot(r[close_default_clf], p[close_default_clf], '^', c='k', markersize=15)
-
-    print(fin[['mean_test_precision_score', 'mean_test_recall_score', 'mean_test_accuracy_score', 'param_max_depth', 'param_max_features', 'param_min_samples_split', 'param_n_estimators']].round(3).head())
-    #precision_recall_threshold(p, r, thresholds, 0.3)
 
 def runKNN():
     dataFrame = pd.read_csv('processedclevelandPrime.csv')
 
     param_grid = {
-        'n_neighbors' : [1, 5, 10, 15, 20]
+        'n_neighbors' : np.arange(1, 25, 1)
     }
 
     scorers = {
@@ -146,7 +87,7 @@ def runKNN():
 
     X = np.array(dataFrame.ix[:, 0:13]) 	# end index is exclusive
     y = np.array(dataFrame['num']) 	# another way of indexing a pandas df
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, random_state=0)
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.33, random_state=0)
 
     clf = KNeighborsClassifier()
 
@@ -154,42 +95,26 @@ def runKNN():
 
         skf = StratifiedKFold(n_splits=10)
         grid_search = GridSearchCV(clf, param_grid, scoring=scorers, refit=refit_score, cv=skf, return_train_score=True, n_jobs=-1)
-        grid_search.fit(X_train, y_train)
-        # make the predictions
-        y_pred = grid_search.predict(X_test)
+        grid_search.fit(X, y)
 
-        print('Best params for {}'.format(refit_score))
-        print(grid_search.best_params_)
-
-        # confusion matrix on the test data.
-        print('\nConfusion matrix of Random Forest optimized for {} on the test data:'.format(refit_score))
-        print(pd.DataFrame(confusion_matrix(y_test, y_pred), columns=['pred_neg', 'pred_pos'], index=['neg', 'pos']))
+        fin = pd.DataFrame(grid_search.cv_results_)
+        fin = fin.sort_values(by='mean_test_' + refit_score , ascending=False)
+        print(fin[['mean_test_precision_score', 'mean_test_recall_score', 'mean_test_accuracy_score', 'param_n_neighbors']].round(3).head(1))
+        fin = fin.sort_values(by='mean_test_recall_score' , ascending=False)
+        print(fin[['mean_test_precision_score', 'mean_test_recall_score', 'mean_test_accuracy_score', 'param_n_neighbors']].round(3).head(1))
+        fin = fin.sort_values(by='mean_test_accuracy_score' , ascending=False)
+        print(fin[['mean_test_precision_score', 'mean_test_recall_score', 'mean_test_accuracy_score', 'param_n_neighbors']].round(3).head(1))
         return grid_search
 
     grid_search_clf = grid_search_wrapper(refit_score='precision_score')
 
-    fin = pd.DataFrame(grid_search_clf.cv_results_)
-    fin = fin.sort_values(by='mean_test_precision_score', ascending=False)
-    #print(fin.head())
-
-    y_scores = grid_search_clf.predict_proba(X_test)[:, 1]
-    p, r, thresholds = precision_recall_curve(y_test, y_scores)
-    #print(thresholds)
-
-    print(fin[['mean_test_precision_score', 'mean_test_recall_score', 'mean_test_accuracy_score', 'param_n_neighbors']].round(3).head())
-
-    #knn.fit(X_train, y_train)
-
-    #pred = knn.predict(X_test)
-
-    #print(accuracy_score(y_test, pred))
 
 def runSVM():
     dataFrame = pd.read_csv('processedclevelandPrime.csv')
 
     param_grid = {
-        'C' : [1, 5, 10],
-        'gamma': [1, 2, 5, 10]
+        'C' : [0.001, 0.01, 0.1, 1, 10],
+        'gamma':[1e-1, 1, 1e1]
     }
 
     scorers = {
@@ -204,7 +129,7 @@ def runSVM():
     
     X = np.array(dataFrame.ix[:, 0:13]) 	# end index is exclusive
     y = np.array(dataFrame['num']) 	# another way of indexing a pandas df
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, random_state=0)
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.33, random_state=0)
 
     clf = svm.SVC(kernel = 'linear', probability=True)
     
@@ -212,45 +137,27 @@ def runSVM():
     def grid_search_wrapper(refit_score='accuracy_score'):
 
         skf = StratifiedKFold(n_splits=10)
-        grid_search = GridSearchCV(clf, param_grid, scoring=scorers, refit=refit_score, cv=skf, return_train_score=True, n_jobs=-1)
-        grid_search.fit(X_train, y_train)
-        # make the predictions
-        y_pred = grid_search.predict(X_test)
+        grid_search = GridSearchCV(clf, param_grid, scoring=scorers, refit=refit_score, cv=skf, return_train_score=True, n_jobs=2)
+        grid_search.fit(X, y)
 
-        print('Best params for {}'.format(refit_score))
-        print(grid_search.best_params_)
+        fin = pd.DataFrame(grid_search.cv_results_)
+        fin = fin.sort_values(by='mean_test_precision_score' , ascending=False)
+        print(fin[['mean_test_precision_score', 'mean_test_recall_score', 'mean_test_accuracy_score', 'param_C', 'param_gamma']].round(3).head(1))
+        fin = fin.sort_values(by='mean_test_recall_score' , ascending=False)
+        print(fin[['mean_test_precision_score', 'mean_test_recall_score', 'mean_test_accuracy_score', 'param_C', 'param_gamma']].round(3).head(1))
+        fin = fin.sort_values(by='mean_test_accuracy_score' , ascending=False)
+        print(fin[['mean_test_precision_score', 'mean_test_recall_score', 'mean_test_accuracy_score', 'param_C', 'param_gamma']].round(3).head(1))
 
-        # confusion matrix on the test data.
-        print('\nConfusion matrix of Random Forest optimized for {} on the test data:'.format(refit_score))
-        print(pd.DataFrame(confusion_matrix(y_test, y_pred), columns=['pred_neg', 'pred_pos'], index=['neg', 'pos']))
         return grid_search
 
     grid_search_clf = grid_search_wrapper(refit_score='precision_score')
-    fin = pd.DataFrame(grid_search_clf.cv_results_)
-    fin = fin.sort_values(by='mean_test_precision_score', ascending=False)
-    print(fin[['mean_test_precision_score', 'mean_test_recall_score', 'mean_test_accuracy_score', 'param_C', 'param_gamma']].round(3).head())
-
-    #print(fin.head())
-
-    y_scores = grid_search_clf.predict_proba(X_test)[:, 1]
-    y_pred_adj = adjusted_classes(y_scores, .3)
-    print(pd.DataFrame(confusion_matrix(y_test, y_pred_adj), columns=['pred_neg', 'pred_pos'], index=['neg', 'pos']))
-    #p, r, thresholds = precision_recall_curve(y_test, y_scores)
-    #print(thresholds)
-
-
-    #print(clf)
-    #clf.fit(X_train, y_train)
-    #print(clf.coef_)
-    #print(clf.intercept_)
-    #predictions = clf.predict(X_test)
-    #print(accuracy_score(y_test,predictions))
 
 def runAdaBoost():
     dataFrame = pd.read_csv('processedclevelandPrime.csv')
 
     param_grid = {
-        'n_estimators' : [5, 25, 50, 100, 200]
+        'n_estimators' : [50, 100, 250, 500, 1000, 2000],
+        'learning_rate':[0.001, 0.01, 0.1, 0.2, 0.3, .5, 1]
     }
 
     scorers = {
@@ -265,45 +172,41 @@ def runAdaBoost():
     
     X = np.array(dataFrame.ix[:, 0:13]) 	# end index is exclusive
     y = np.array(dataFrame['num']) 	# another way of indexing a pandas df
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, random_state=0)
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.33, random_state=0)
 
-    clf = AdaBoostClassifier(random_state=0)
+    clf = AdaBoostClassifier()
 
     def grid_search_wrapper(refit_score='accuracy_score'):
 
         skf = StratifiedKFold(n_splits=10)
-        grid_search = GridSearchCV(clf, param_grid, scoring=scorers, refit=refit_score, cv=skf, return_train_score=True, n_jobs=-1)
-        grid_search.fit(X_train, y_train)
-        # make the predictions
-        y_pred = grid_search.predict(X_test)
+        grid_search = GridSearchCV(clf, param_grid, scoring=scorers, refit=refit_score, cv=skf, return_train_score=True, n_jobs=2)
+        grid_search.fit(X, y)
+        
+        fin = pd.DataFrame(grid_search.cv_results_)
+        fin = fin.sort_values(by='mean_test_precision_score' , ascending=False)
+        print(fin[['mean_test_precision_score', 'mean_test_recall_score', 'mean_test_accuracy_score', 'param_n_estimators', 'param_learning_rate']].round(3).head(1))
+        fin = fin.sort_values(by='mean_test_recall_score' , ascending=False)
+        print(fin[['mean_test_precision_score', 'mean_test_recall_score', 'mean_test_accuracy_score', 'param_n_estimators', 'param_learning_rate']].round(3).head(1))
+        fin = fin.sort_values(by='mean_test_accuracy_score' , ascending=False)
+        print(fin[['mean_test_precision_score', 'mean_test_recall_score', 'mean_test_accuracy_score', 'param_n_estimators', 'param_learning_rate']].round(3).head(1))
 
-        print('Best params for {}'.format(refit_score))
-        print(grid_search.best_params_)
-
-        # confusion matrix on the test data.
-        print('\nConfusion matrix of Random Forest optimized for {} on the test data:'.format(refit_score))
-        print(pd.DataFrame(confusion_matrix(y_test, y_pred), columns=['pred_neg', 'pred_pos'], index=['neg', 'pos']))
         return grid_search
 
     grid_search_clf = grid_search_wrapper(refit_score='precision_score')
-    fin = pd.DataFrame(grid_search_clf.cv_results_)
-    fin = fin.sort_values(by='mean_test_precision_score', ascending=False)
-    print(fin[['mean_test_precision_score', 'mean_test_recall_score', 'mean_test_accuracy_score', 'param_n_estimators']].round(3).head())
-
-    #print(fin.head())
-
-    y_scores = grid_search_clf.predict_proba(X_test)[:, 1]
-    y_pred_adj = adjusted_classes(y_scores, .3)
-    print(pd.DataFrame(confusion_matrix(y_test, y_pred_adj), columns=['pred_neg', 'pred_pos'], index=['neg', 'pos']))
 
 def runGradientBoost():
     dataFrame = pd.read_csv('processedclevelandPrime.csv')
 
+    
+    
     param_grid = {
-        'min_samples_split': [3, 5, 10], 
-        'n_estimators' : [50, 100, 200],
-        'max_depth': [3, 5, 15, 25],
-        'max_features': [3, 5, 10, 13]
+        'max_depth': [3, 5, 10, 20, 50, 75, 100, None],
+        'max_features': ['sqrt', 'log2', None],
+        'min_samples_leaf': [1, 2, 4, 6, 10],
+        'min_samples_split': [2, 5, 10],
+        'n_estimators': [100, 250, 500, 1000, 2000],
+        'learning_rate': [0.001, 0.01, 0.1, 0.2, 0.3, .5, 1]
+
     }
 
     scorers = {
@@ -325,33 +228,139 @@ def runGradientBoost():
     def grid_search_wrapper(refit_score='accuracy_score'):
 
         skf = StratifiedKFold(n_splits=10)
-        grid_search = GridSearchCV(clf, param_grid, scoring=scorers, refit=refit_score, cv=skf, return_train_score=True, n_jobs=-1)
-        grid_search.fit(X_train, y_train)
-        # make the predictions
-        y_pred = grid_search.predict(X_test)
+        grid_search = RandomizedSearchCV(clf, param_grid, scoring=scorers, refit=refit_score, cv=skf, return_train_score=True, n_jobs=2, n_iter=500)
+        grid_search.fit(X, y)
 
-        print('Best params for {}'.format(refit_score))
-        print(grid_search.best_params_)
+        fin = pd.DataFrame(grid_search.cv_results_)
+        fin = fin.sort_values(by='mean_test_precision_score' , ascending=False)
+        print(fin[['mean_test_precision_score', 'mean_test_recall_score', 'mean_test_accuracy_score', 'param_max_depth', 'param_max_features', 'param_min_samples_split', 'param_n_estimators', 'param_min_samples_leaf', 'param_learning_rate']].round(3).head(1))
+        fin = fin.sort_values(by='mean_test_recall_score' , ascending=False)
+        print(fin[['mean_test_precision_score', 'mean_test_recall_score', 'mean_test_accuracy_score', 'param_max_depth', 'param_max_features', 'param_min_samples_split', 'param_n_estimators', 'param_min_samples_leaf', 'param_learning_rate']].round(3).head(1))
+        fin = fin.sort_values(by='mean_test_accuracy_score' , ascending=False)
+        print(fin[['mean_test_precision_score', 'mean_test_recall_score', 'mean_test_accuracy_score', 'param_max_depth', 'param_max_features', 'param_min_samples_split', 'param_n_estimators', 'param_min_samples_leaf', 'param_learning_rate']].round(3).head(1))
 
-        # confusion matrix on the test data.
-        print('\nConfusion matrix of Random Forest optimized for {} on the test data:'.format(refit_score))
-        print(pd.DataFrame(confusion_matrix(y_test, y_pred), columns=['pred_neg', 'pred_pos'], index=['neg', 'pos']))
         return grid_search
 
     grid_search_clf = grid_search_wrapper(refit_score='precision_score')
-    fin = pd.DataFrame(grid_search_clf.cv_results_)
-    fin = fin.sort_values(by='mean_test_precision_score', ascending=False)
-    print(fin[['mean_test_precision_score', 'mean_test_recall_score', 'mean_test_accuracy_score', 'param_n_estimators']].round(3).head())
 
-    #print(fin.head())
 
-    y_scores = grid_search_clf.predict_proba(X_test)[:, 1]
-    y_pred_adj = adjusted_classes(y_scores, .3)
-    print(fin[['mean_test_precision_score', 'mean_test_recall_score', 'mean_test_accuracy_score', 'param_max_depth', 'param_max_features', 'param_min_samples_split', 'param_n_estimators']].round(3).head())
-    print(pd.DataFrame(confusion_matrix(y_test, y_pred_adj), columns=['pred_neg', 'pred_pos'], index=['neg', 'pos']))
+def thresholds(y_test, y_pred):
+    aScore = None
+    leastFN = np.inf
+    lowT = 0
+    for t in np.arange(1.00, 0, -.01):
+        FN = 0
+        y_adjusted = adjusted_classes(y_pred, t)
+        for i in range(len(y_adjusted)):
+            if y_adjusted[i]==0 and y_test[i] != y_adjusted[i]:
+                FN += 1
+        if(FN < leastFN):
+            aScore = accuracy_score(y_test, y_adjusted)
+            leastFN = FN
+            lowT = t
+    print(lowT)
+    print(leastFN)
+    print(aScore)
+    print('\n')
+
+
+    #for a in aScores:
+    #    print(a)
+
+    
+
+
+def getThresholdCurves():
+
+    dataFrame = pd.read_csv('processedclevelandPrime.csv')
+    for i in range(0, len(dataFrame['num'])):
+        if(dataFrame['num'][i] > 0):
+            dataFrame['num'][i] = 1
+
+    X = np.array(dataFrame.ix[:, 0:13])
+    y = np.array(dataFrame['num'])
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, random_state=0)
+
+
+    knnClassifierPrecision = KNeighborsClassifier(n_jobs=2, n_neighbors=4)
+    knnClassifierPrecision.fit(X_train, y_train)
+    y_scoresknnClassifierPrecision = knnClassifierPrecision.predict_proba(X_test)[:, 1]
+    thresholds(y_test, y_scoresknnClassifierPrecision)
+
+    knnClassifierRecall = KNeighborsClassifier(n_jobs=2, n_neighbors=13)
+    knnClassifierRecall.fit(X_train, y_train)
+    y_scoresknnClassifierRecall = knnClassifierRecall.predict_proba(X_test)[:, 1]
+    thresholds(y_test, y_scoresknnClassifierRecall)
+
+    knnClassifierAccuracy = KNeighborsClassifier(n_jobs=2, n_neighbors=23)
+    knnClassifierAccuracy.fit(X_train, y_train)
+    y_scoresknnClassifierAccuracy = knnClassifierAccuracy.predict_proba(X_test)[:, 1]
+    thresholds(y_test, y_scoresknnClassifierAccuracy)
+
+
+
+
+    adaBoostClassifierPrecision = AdaBoostClassifier(n_estimators=1000 , learning_rate=.001)
+    adaBoostClassifierPrecision.fit(X_train, y_train)
+    y_scoresadaBoostClassifierPrecision = adaBoostClassifierPrecision.predict_proba(X_test)[:, 1]
+    thresholds(y_test, y_scoresadaBoostClassifierPrecision)
+
+    adaBoostClassifierRecall = AdaBoostClassifier(n_estimators=250 , learning_rate=.01)
+    adaBoostClassifierRecall.fit(X_train, y_train)
+    y_scoresadaBoostClassifierRecall = adaBoostClassifierRecall.predict_proba(X_test)[:, 1]
+    thresholds(y_test, y_scoresadaBoostClassifierRecall)
+
+    adaBoostClassifierAccuracy = AdaBoostClassifier(n_estimators=250 , learning_rate=.01)
+    adaBoostClassifierAccuracy.fit(X_train, y_train)
+    y_scoresadaBoostClassifierAccuracy = adaBoostClassifierAccuracy.predict_proba(X_test)[:, 1]
+    thresholds(y_test, y_scoresadaBoostClassifierAccuracy)
+
+
+
+
+    rfClassifierPrecision = RandomForestClassifier(n_jobs=2, bootstrap=True , max_depth=3, max_features='sqrt', min_samples_leaf=2, min_samples_split=2, n_estimators=1000)
+    rfClassifierPrecision.fit(X_train, y_train)
+    y_scoresrfClassifierPrecision = rfClassifierPrecision.predict_proba(X_test)[:, 1]
+    thresholds(y_test, y_scoresrfClassifierPrecision)
+
+    rfClassifierRecall = RandomForestClassifier(n_jobs=2, bootstrap=False , max_depth=50, max_features='sqrt', min_samples_leaf=4, min_samples_split=5, n_estimators=100)
+    rfClassifierRecall.fit(X_train, y_train)
+    y_scoresrfClassifierRecall = rfClassifierRecall.predict_proba(X_test)[:, 1]
+    thresholds(y_test, y_scoresrfClassifierRecall)
+
+    rfClassifierAccuracy = RandomForestClassifier(n_jobs=2, bootstrap=True , max_depth=3, max_features='sqrt', min_samples_leaf=2, min_samples_split=2, n_estimators=1000)
+    rfClassifierAccuracy.fit(X_train, y_train)
+    y_scoresrfrfClassifierAccuracy = rfClassifierAccuracy.predict_proba(X_test)[:, 1]
+    thresholds(y_test, y_scoresrfrfClassifierAccuracy)
+
+
+
+
+
+    gbrfClassifierPrecision = GradientBoostingClassifier(learning_rate=.0001 , max_depth=50, max_features='sqrt', min_samples_leaf=4, min_samples_split=10, n_estimators=100)
+    gbrfClassifierPrecision.fit(X_train, y_train)
+    y_scoresrfgbrfClassifierPrecision = gbrfClassifierPrecision.predict_proba(X_test)[:, 1]
+    thresholds(y_test, y_scoresrfgbrfClassifierPrecision)
+
+    gbrfClassifierRecall = GradientBoostingClassifier(learning_rate=1 , max_depth=5, max_features='sqrt', min_samples_leaf=4, min_samples_split=2, n_estimators=2000)
+    gbrfClassifierRecall.fit(X_train, y_train)
+    y_scoresgbrfClassifierRecall = gbrfClassifierRecall.predict_proba(X_test)[:, 1]
+    thresholds(y_test, y_scoresgbrfClassifierRecall)
+
+    gbrfClassifierAccuracy = GradientBoostingClassifier(learning_rate=.001 , max_depth=3, max_features='sqrt', min_samples_leaf=4, min_samples_split=10, n_estimators=500)
+    gbrfClassifierAccuracy.fit(X_train, y_train)
+    y_scoresgbrfClassifierAccuracy = gbrfClassifierRecall.predict_proba(X_test)[:, 1]
+    thresholds(y_test, y_scoresgbrfClassifierAccuracy)
+
+
+
+
 
 #runRandomForest()
 #runKNN()
 #runSVM()
 #runAdaBoost()
-runGradientBoost()
+#runGradientBoost()
+
+getThresholdCurves()
+
